@@ -1,6 +1,7 @@
-Simple LSTM implementation using numpy only. 
+# Simple LSTM Implementation Using Numpy Only.
 
-Implemented LSTM architecture:
+## Architecture:
 ![LSTM_image](LSTM%20image.png)
 
-Also for testing I implemented simple text generator from characters.
+## Testing
+For testing I implemented simple character level text generator.
