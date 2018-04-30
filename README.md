@@ -1,6 +1,6 @@
-Simple LSTM implementation without using any classes and using only numpy. 
+Simple LSTM implementation using numpy only. 
 
 Implemented LSTM architecture:
 ![LSTM_image](LSTM%20image.png)
 
-Also for testING I implemented simple text generator from characters.
+Also for testing I implemented simple text generator from characters.
