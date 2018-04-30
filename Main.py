@@ -1,201 +1,207 @@
-
 import numpy as np
 
-data = open('kafka.txt', 'r').read()
+data = open('Eminem.txt', 'r').read()
 chars = list(set(data))
 seq_length = 25
-learning_rate = 0.1
+learning_rate = 0.3
 data_size, vocab_size = len(data), len(chars)
 print('data has %d chars, %d unique' % (data_size, vocab_size))
 
-
 output_size = vocab_size
-num_hidden_units = 100
+num_hidden_units = 50
+iteration_count = 300000
 
 
-char_to_ix = { ch:i for i, ch in enumerate(chars)}
-ix_to_char = { i:ch for i, ch in enumerate(chars)}
+char_to_ix = {ch: i for i, ch in enumerate(chars)}
+ix_to_char = {i: ch for i, ch in enumerate(chars)}
 print(char_to_ix)
 print(ix_to_char)
 
 
-ranomvar = 40
+combined = num_hidden_units + vocab_size
 
-Uf = np.random.randn(output_size, vocab_size) * 0.01 # np.array([[0.2, -0.3], [0.5, 0.2]])
-Wf = np.random.rand(output_size, output_size) * 0.01 # np.array([[0.1, -0.2], [0, 0.2]])
+wa = np.random.rand(num_hidden_units, combined) / np.sqrt(combined/2.)
+wf = np.random.rand(num_hidden_units, combined) / np.sqrt(combined/2.)
+wo = np.random.rand(num_hidden_units, combined) / np.sqrt(combined/2.)
+wi = np.random.rand(num_hidden_units, combined) / np.sqrt(combined/2.)
+wy = np.random.rand(output_size, num_hidden_units) / np.sqrt(num_hidden_units/2.)
 
-Uo = np.random.randn(output_size, vocab_size) * 0.01 #np.array([[0.1, 0.5], [0.2, -0.2]])
-Wo = np.random.rand(output_size, output_size) * 0.01 #np.array([[0.6, 0.2], [-0.5, -0.1]])
-
-Ua = np.random.randn(output_size, vocab_size) * 0.01 #np.array([[0.4, 0.2], [0.4, -0.2]])
-Wa = np.random.rand(output_size, output_size) * 0.01 #np.array([[-0.1, 0.2], [0.5, -0.3]])
-
-Ui = np.random.randn(output_size, vocab_size) * 0.01 #np.array([[0.3, -0.1], [0, 0.2]])
-Wi = np.random.rand(output_size, output_size) * 0.01 #np.array([[0.2, 0.1], [0, 0.2]])
-
-bf = np.zeros((output_size))
-bo = np.zeros((output_size))
-ba = np.zeros((output_size))
-bi = np.zeros((output_size))
+bf = np.zeros(num_hidden_units)
+bo = np.zeros(num_hidden_units)
+ba = np.zeros(num_hidden_units)
+bi = np.zeros(num_hidden_units)
+by = np.zeros(output_size)
 
 
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
 
-def update(dWo, dUo, dbo, dWi, dUi, dbi, dWf, dUf, dbf, dWs, dUs, dbs):
-    global Wf, Uf, Wo, Uo, Wa, Ua, Wi, Ui, bf, bo, ba, bi
-    Wf -= dWf * learning_rate
-    Uf -= dUf * learning_rate
-    Wo -= dWo * learning_rate
-    Uo -= dUo * learning_rate
-    Wi -= dWi * learning_rate
-    Ui -= dUi * learning_rate
-    Wa -= dWs * learning_rate
-    Ua -= dUs * learning_rate
-
-    bo -= dbo * learning_rate
-    bi -= dbi * learning_rate
-    ba -= dbs * learning_rate
-    bf -= dbf * learning_rate
-
-def err_handler(type, flag):
-    print("Floating point error (%s), with flag %s" % (type, flag))
+def loss_multi(y, t):
+    return np.sum(1 - y[t])
 
 
-saved_handler = np.seterrcall(err_handler)
-save_err = np.seterr(all='call')
+def loss(pred, label):
+    return (pred[0][0] - label) ** 2
 
 
-def loss_function(input, hp, sp, y):
-    Gs = {}
-    Gf = {}
-    Go = {}
-    Gi = {}
-    Ga = {}
+def sigmoid_derivative(values):
+    return values * (1 - values)
+
+
+def tanh_derivative(values):
+    return 1 - values ** 2
+
+
+def tanh_derivative2(values):
+    return 1 - (np.tanh(values)) ** 2
+
+
+def soft_max(values):
+    return np.exp(values) / np.sum(np.exp(values))
+
+
+#Feedforward + Backprop
+def loss_function(inputs, hp, sp, y):
+    g_s = {}
+    g_f = {}
+    g_o = {}
+    g_i = {}
+    g_a = {}
+    g_y = {}
     x = {}
     h = {}
 
-    h[-1] = hp
-    Gs[-1] = sp
-    Loss = 0
+    h[-1] = np.atleast_2d(hp)
+    g_s[-1] = np.atleast_2d(sp)
+    loss = 0
     y = np.asarray(y)
     for t in range(len(y)):
-        x[t] = np.zeros((vocab_size))
-        x[t][input[t]] += 1
+        x[t] = np.atleast_2d(np.zeros((vocab_size)))
+        x[t][0, inputs[t]] += 1
+        x[t] = np.hstack((x[t], h[t - 1]))[0]
 
-        Gf[t] = sigmoid(bf + np.dot(Uf, x[t]) + np.dot(Wf, h[t - 1]))
-        Gi[t] = sigmoid(bi + np.dot(Ui, x[t]) + np.dot(Wi, h[t - 1]))
-        Ga[t] = np.tanh(ba + np.dot(Ua, x[t]) + np.dot(Wa, h[t - 1]))
-        Go[t] = sigmoid(bo + np.dot(Uo, x[t]) + np.dot(Wo, h[t - 1]))
-        Gs[t] = Gf[t] * Gs[t - 1] + Gi[t] * Ga[t]
+        g_f[t] = sigmoid(bf + np.dot(wf, x[t]))
+        g_i[t] = sigmoid(bi + np.dot(wi, x[t]))
+        g_a[t] = np.tanh(ba + np.dot(wa, x[t]))
+        g_o[t] = sigmoid(bo + np.dot(wo, x[t]))
+        g_s[t] = g_f[t] * g_s[t - 1] + g_i[t] * g_a[t]
 
-        h[t] = np.tanh(Gs[t]) * Go[t]
-        ca = np.exp(h[t]) / np.sum(np.exp(h[t]))
-        Loss += -np.log(ca[y[t]])
+        h[t] = np.tanh(g_s[t]) * g_o[t]
+        g_y[t] = soft_max(np.dot(wy, h[t][0]) + by)
+        loss += loss_multi(g_y[t], y[t])
 
-    dWo, dUo, dbo = np.zeros_like(Wo), np.zeros_like(Uo), np.zeros_like(bo)
-    dWa, dUa, dba = np.zeros_like(Wa), np.zeros_like(Ua), np.zeros_like(ba)
-    dWf, dUf, dbf = np.zeros_like(Wf), np.zeros_like(Uf), np.zeros_like(bf)
-    dWi, dUi, dbi = np.zeros_like(Wi), np.zeros_like(Ui), np.zeros_like(bi)
-
-
-    deltaOut = np.zeros(output_size)
-    deltaSFuture = np.zeros(output_size)
+    duo, dbo = np.zeros_like(wo), np.zeros_like(bo)
+    dua, dba = np.zeros_like(wa), np.zeros_like(ba)
+    duf, dbf = np.zeros_like(wf), np.zeros_like(bf)
+    dui, dbi = np.zeros_like(wi), np.zeros_like(bi)
+    duy, dby = np.zeros_like(wy), np.zeros_like(by)
+    delta_out = np.zeros(num_hidden_units)
+    delta_s_future = np.zeros(num_hidden_units)
 
     for t in reversed(range(len(y))):
-        L = np.copy(h[t])
-        L[y[t]] -= 1
+        pred = g_y[t]
+        label = np.zeros_like(pred)
+        label[y[t]] = 1
+        diff = 2 * (pred - label)
 
-        dout = L + deltaOut
-        dstate = dout * Go[t] * (1 - np.power(np.tanh(Gs[t]), 2)) + deltaSFuture
-        df = dstate * Gs[t-1] * Gf[t] * (1 - Gf[t])
-        di = dstate * Ga[t] * Gi[t] * (1 - Gi[t])
-        da = dstate * Gi[t] * (1 - Ga[t]**2)
-        do = dout * np.tanh(Gs[t]) * Go[t] * (1 - Go[t])
+        L = diff
+        L = np.atleast_2d(L)
 
-        deltaOut = np.dot(Wi.T, di) + np.dot(Wo.T, do) + np.dot(Wf.T, df) + np.dot(Wa.T, da)
-        deltaSFuture = dstate * Gf[t]
+        duy += np.dot(L.T, h[t])
+        dby += L[0]
+        dout = np.dot(L, wy) + delta_out
+        dstate = dout * g_o[t] * tanh_derivative2(g_s[t]) + delta_s_future
+        df = dstate * g_s[t - 1] * sigmoid_derivative(g_f[t])
+        di = dstate * g_a[t] * sigmoid_derivative(g_i[t])
+        da = dstate * g_i[t] * tanh_derivative(g_a[t])
+        do = dout * np.tanh(g_s[t]) * sigmoid_derivative(g_o[t])
 
-        dUo += np.outer(do, x[t])
-        dUi += np.outer(di, x[t])
-        dUf += np.outer(df, x[t])
-        dUa += np.outer(da, x[t])
+        delta_out = np.dot(wi.T, di[0]) \
+                   + np.dot(wo.T, do[0]) \
+                   + np.dot(wf.T, df[0]) \
+                   + np.dot(wa.T, da[0])
 
-        dWo += np.outer(do, h[t - 1])
-        dWi += np.outer(di, h[t - 1])
-        dWf += np.outer(df, h[t - 1])
-        dWa += np.outer(da, h[t - 1])
+        delta_out = delta_out[vocab_size:]
+        delta_s_future = dstate * g_f[t]
 
-        dbo += do
-        dba += da
-        dbf += df
-        dbi += di
+        duo += np.outer(do, x[t])
+        dui += np.outer(di, x[t])
+        duf += np.outer(df, x[t])
+        dua += np.outer(da, x[t])
 
-    return Loss, dWo, dUo, dbo, dWi, dUi, dbi, dWf, dUf, dbf, dWa, dUa, dba, h[len(y) - 1], Gs[len(y) - 1]
+        dbo += do[0]
+        dba += da[0]
+        dbf += df[0]
+        dbi += di[0]
+
+    #Gradient clipping
+    for dparam in [duf, duo, dui, dua, duy, dbo, dbi, dba, dbf, dby]:
+        np.clip(dparam, -1, 1, out=dparam)
+
+    return loss, duf, duo, dui, dua, duy, dbo, dbi, dba, dbf, dby, h[len(y) - 1], g_s[len(y) - 1], g_y
 
 
-
-#prediction, one full forward passnp.atleast_2d(h[t]).T
 def sample(inputs, hp, sp, n):
-  Gs = {}
-  Gf = {}
-  Go = {}
-  Gi = {}
-  Ga = {}
-  h = {}
+    ixes = []
+    x = np.atleast_2d(np.zeros(vocab_size))[0]
+    x[inputs] += 1
 
-  h[-1] = hp
-  Gs[-1] = sp
-  ixes = []
-  x = np.zeros((vocab_size))
-  x[inputs] = 1
-  for t in range(n):
-      Gf[t] = sigmoid(bf + np.dot(Uf, x) + np.dot(Wf, h[t - 1]))
-      Gi[t] = sigmoid(bi + np.dot(Ui, x) + np.dot(Wi, h[t - 1]))
-      Ga[t] = np.tanh(ba + np.dot(Ua, x) + np.dot(Wa, h[t - 1]))
-      Gs[t] = Gf[t] * Gs[t - 1] + Gi[t] * Ga[t]
-      Go[t] = sigmoid(bo + np.dot(Uo, x) + np.dot(Wo, h[t - 1]))
-      h[t] = np.tanh(Gs[t]) * Go[t]
-      p = np.exp(h[t]) / np.sum(np.exp(h[t]))
-      ix = np.random.choice(range(vocab_size), p=p.ravel())
-      x = np.zeros((vocab_size))
-      x[ix] = 1
-      ixes.append(ix)
+    for t in range(n):
+        x = np.hstack((x, hp[0]))
+        Gf = sigmoid(bf + np.dot(wf, x))
+        Gi = sigmoid(bi + np.dot(wi, x))
+        Ga = np.tanh(ba + np.dot(wa, x))
+        Go = sigmoid(bo + np.dot(wo, x))
+        Gs = Gf * sp + Gi * Ga
 
-  txt = ''.join(ix_to_char[ix] for ix in ixes)
-  print('----\n %s \n----' % (txt, ))
+        h = np.tanh(Gs) * Go
+        Gy = soft_max(np.dot(wy, h[0]) + by)
 
-
+        ix = np.random.choice(range(vocab_size), p=Gy.ravel())
+        x = np.atleast_2d(np.zeros(vocab_size))[0]
+        x[ix] += 1
+        ixes.append(ix)
+        hp = h
+        sp = Gs
+    txt = ''.join(ix_to_char[ix] for ix in ixes)
+    print('----\n %s \n----' % (txt,))
 
 
 def train():
-    np.random.seed(0)
     n, p = 0, 0
-    hprev = np.zeros((output_size, 1))
+    hprev = np.zeros((num_hidden_units, 1))
+    mdUf, mdUo, mdUi, mdUs, mdUy = np.zeros_like(wf), np.zeros_like(wo), np.zeros_like(wi), np.zeros_like(
+        wa), np.zeros_like(wy)
+    mdbo, mdbi, mdbs, mdbf, mdby = np.zeros_like(bo), np.zeros_like(bi), np.zeros_like(ba), np.zeros_like(
+        bf), np.zeros_like(by)
 
-    smooth_loss = -np.log(
-        1.0 / vocab_size) * seq_length  # loss at iteration 0
-    while n <= 1000 * 100 * 3:
-        # prepare inputs (we're sweeping from left to right in steps seq_length long)
-        # check "How to feed the loss function to see how this part works
+    np.random.seed(0)
+
+    while n <= iteration_count:
         if p + seq_length + 1 >= len(data) or n == 0:
-            hprev = np.zeros((output_size))  # reset RNN memory
-            sprev = np.zeros((output_size))
+            hprev = np.zeros(num_hidden_units)  # reset LSTM memory
+            sprev = np.zeros(num_hidden_units)
             p = 0  # go from start of data
         inputs = [char_to_ix[ch] for ch in data[p:p + seq_length]]
         targets = [char_to_ix[ch] for ch in data[p + 1:p + seq_length + 1]]
 
-        # forward seq_length characters through the net and fetch gradient
-        loss, dWo, dUo, dbo, dWi, dUi, dbi, dWf, dUf, dbf, dWs, dUs, dbs, hprev, sprev = loss_function(inputs, hprev, sprev, targets)
-        smooth_loss = smooth_loss * 0.999 + loss * 0.001
+        loss, dUf, dUo, dUi, dUs, dUy, dbo, dbi, dbs, dbf, dby, hprev, sprev, rez = loss_function(inputs, hprev,
+                                                                                             sprev, targets)
 
         # sample from the model now and then
         if n % 1000 == 0:
             print('iter %d, loss: %f' % (n, loss))
-            sample(inputs[0], hprev, sprev, 30)
+            sample(inputs[0], hprev, sprev, 200)
 
-        update(dWo, dUo, dbo, dWi, dUi, dbi, dWf, dUf, dbf, dWs, dUs, dbs)
+        # adagrad update
+        for param, dparam, mem in zip([wf, wo, wi, wa, wy, bo, bi, ba, bf, by],
+                                      [dUf, dUo, dUi, dUs, dUy, dbo, dbi, dbs, dbf, dby],
+                                      [mdUf, mdUo, mdUi, mdUs, mdUy, mdbo, mdbi, mdbs, mdbf, mdby]):
+            mem += dparam * dparam
+            param += -learning_rate * dparam / np.sqrt(
+                mem + 1e-8)
+
         p += seq_length  # move data pointer
         n += 1  # iteration counter
 
